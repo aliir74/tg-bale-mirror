@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+
+# secrets
+.env
+*.session
+*.session-journal
+
+# runtime
+.bale_retry_queue
+tmp/
+logs/
