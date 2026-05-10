@@ -146,7 +146,43 @@ scripts/
 tests/                 # 42 tests covering everything except live API calls
 ```
 
+## VPS deploy (your-vps, systemd)
+
+Same pattern as `news-summarizer`. The repo lives at `/opt/tg-bale-mirror`,
+runs under a systemd unit, deploys via `git pull` + `uv sync` + restart.
+
+**One-time bootstrap:**
+
+```bash
+# 1. Generate a session string locally (interactive — phone + login code)
+make session
+# Copy the output into your local .env as TG_SESSION_STRING=...
+
+# 2. Push code to GitHub origin/main first (deploy refuses if local is ahead)
+git push -u origin main
+
+# 3. SSH in once, clone the repo, push .env, install + enable the systemd unit
+ssh your-vps 'git clone https://github.com/aliir74/tg-bale-mirror /opt/tg-bale-mirror'
+make push-env
+make install-systemd
+make start
+make logs-follow
+```
+
+**Day-to-day:**
+
+```bash
+make deploy        # git pull + uv sync + restart on the VPS
+make restart       # restart only
+make logs          # last 100 lines
+make logs-follow   # tail -f journal
+make status        # systemctl status
+make ssh           # interactive shell on the VPS in /opt/tg-bale-mirror
+make push-env      # sync local .env to VPS (3s abort window)
+make pull-state    # download .bale_retry_queue to ./state-backup/
+```
+
 ## Reference
 
 - Pattern for the Bale Bot API client: [`news-summarizer`](../news-summarizer)
-- Pattern for the pyrofork userbot listener: [`channel-ghost`](../channel-ghost)
+- Pattern for the pyrofork userbot listener + session-string flow: [`channel-ghost`](../channel-ghost)

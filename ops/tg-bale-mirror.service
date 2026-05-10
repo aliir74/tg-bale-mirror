@@ -1,0 +1,19 @@
+[Unit]
+Description=tg-bale-mirror — one-way Telegram → Bale channel mirror
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tg-bale-mirror
+Environment="PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=/opt/tg-bale-mirror/.env
+ExecStart=/root/.local/bin/uv run python -m src.main
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

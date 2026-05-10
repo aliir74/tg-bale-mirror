@@ -36,11 +36,18 @@ async def main() -> None:
 
     bale = BaleClient(config.bale_bot_token, config.bale_channel_id)
     queue = RetryQueue(bale)
-    tg = Client(
-        name=config.tg_session_name,
-        api_id=config.tg_api_id,
-        api_hash=config.tg_api_hash,
-    )
+    tg_kwargs: dict[str, object] = {
+        "name": config.tg_session_name,
+        "api_id": config.tg_api_id,
+        "api_hash": config.tg_api_hash,
+    }
+    if config.tg_session_string:
+        tg_kwargs["session_string"] = config.tg_session_string
+        tg_kwargs["in_memory"] = True
+        logger.info("using session string from env (in-memory mode)")
+    else:
+        logger.info("using session file %s.session", config.tg_session_name)
+    tg = Client(**tg_kwargs)  # type: ignore[arg-type]
     mirror = Mirror(tg, bale, queue, config.temp_media_dir)
     debouncer = AlbumDebouncer(on_flush=mirror.handle)
     listener = TgListener(tg, config.tg_source_channel, debouncer)
