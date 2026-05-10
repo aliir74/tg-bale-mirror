@@ -1,7 +1,7 @@
 # telegram-bot-listener-mode
 
 **Goal:** Support running the Telegram listener as a Bot (default) or as a Userbot (legacy), selected by env config.
-**Status:** in_progress
+**Status:** done
 **Created:** 2026-05-09
 **Execution:** Use `/execute-plan <path-to-this-file>` to run this plan task-by-task.
 
@@ -107,9 +107,9 @@ Caveats called out in the README:
 
 **Files:** none
 
-- [ ] Run `make check` one more time — clean.
-- [ ] `git log --oneline` to confirm commits read coherently.
-- [ ] Update plan **Status: done** and tick the unchecked top-level boxes.
+- [x] Run `make check` one more time — clean.
+- [x] `git log --oneline` to confirm commits read coherently.
+- [x] Update plan **Status: done** and tick the unchecked top-level boxes.
 
 ---
 
