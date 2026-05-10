@@ -58,3 +58,22 @@ def test_missing_required_raises(monkeypatch: pytest.MonkeyPatch, tmp_path) -> N
 
     with pytest.raises(ValidationError):
         Config()
+
+
+def test_tg_bot_token_defaults_to_none(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    _base_env(monkeypatch)
+
+    cfg = Config()
+
+    assert cfg.tg_bot_token is None
+
+
+def test_tg_bot_token_loads_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    _base_env(monkeypatch)
+    monkeypatch.setenv("TG_BOT_TOKEN", "987654:bot_token_value")
+
+    cfg = Config()
+
+    assert cfg.tg_bot_token == "987654:bot_token_value"

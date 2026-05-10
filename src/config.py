@@ -25,6 +25,12 @@ class Config(BaseSettings):
         description="Pre-generated session string (preferred for headless/VPS); "
         "if unset, pyrofork falls back to interactive login + .session file",
     )
+    tg_bot_token: str | None = Field(
+        default=None,
+        description="Telegram bot token from @BotFather. When set, the listener "
+        "runs in bot mode (preferred); the bot must be admin of the source "
+        "channel to receive channel_post updates.",
+    )
     tg_source_channel: int | str = Field(
         ...,
         description="Numeric channel ID (preferred) or @username",
