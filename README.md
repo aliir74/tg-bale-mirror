@@ -7,9 +7,13 @@ caption preserved.
 
 ## How it works
 
-1. A Pyrogram (pyrofork) **userbot** subscribes to the source Telegram
-   channel using your personal Telegram account. Read access is enough
-   — your account just needs to be a member.
+1. A Pyrogram (pyrofork) listener subscribes to the source Telegram
+   channel. Two listener modes are supported:
+   - **Bot mode (default):** a Telegram bot you created via @BotFather
+     and added as **admin** of the source channel.
+   - **Userbot mode (legacy):** your personal Telegram account; needs
+     to be a member of the channel. Use this only when you can't add a
+     bot as admin of the source.
 2. New posts are dispatched to an in-memory **album debouncer** that
    batches items sharing the same `media_group_id` after 1.5s of idle.
 3. The **mirror** downloads any media to a temp dir, then re-uploads it
@@ -38,10 +42,9 @@ httpx · pydantic-settings · pytest · ruff · pyright.
 git clone <this repo>
 cd tg-bale-mirror
 make dev                                    # uv sync --extra dev
-cp .env.example .env                        # fill in credentials
-uv run python -m src.main                   # first run prompts for Telegram login
-make run                                    # subsequent runs use the saved session
-make test                                   # run the test suite (42 tests)
+cp .env.example .env                        # fill in credentials (bot mode by default)
+make run                                    # bot mode needs no interactive login
+make test                                   # run the test suite
 make check                                  # lint + typecheck + test
 ```
 
@@ -49,13 +52,46 @@ make check                                  # lint + typecheck + test
 
 ### Telegram (`TG_API_ID`, `TG_API_HASH`)
 
+These identify the *app*, not the user — required in both bot and
+userbot mode.
+
 1. Visit <https://my.telegram.org> and log in with your phone number.
 2. Click "API development tools" → fill in any app name → save.
 3. Copy `api_id` (number) and `api_hash` (string) into `.env`.
 
-The first time you run `python -m src.main`, pyrofork will ask for your
-phone number and the SMS/Telegram code. It saves a `.session` file
-locally — keep this safe; it's equivalent to your Telegram login.
+### Listener mode
+
+Pick one of three modes. Precedence at startup:
+
+1. `TG_BOT_TOKEN` set → **bot mode** (recommended). Wins over
+   `TG_SESSION_STRING` with a logged warning if both are configured.
+2. `TG_SESSION_STRING` set → userbot in-memory mode (VPS/headless).
+3. Neither set → userbot interactive `.session` file (local dev only).
+
+#### Bot mode (`TG_BOT_TOKEN`) — default
+
+1. Talk to [@BotFather](https://t.me/BotFather), create a bot, copy the
+   token into `TG_BOT_TOKEN`.
+2. Add the bot to the source channel as **admin** with at least "Post
+   Messages" / read access. Without admin status the bot will not
+   receive `channel_post` updates and the mirror will sit idle.
+3. Run `make run` — no interactive login needed.
+
+Caveat: bot accounts have a stricter per-file download cap than
+userbots. Pyrofork uses MTProto so this is usually fine, but very
+large videos may fail and end up in the retry queue. Switch to
+userbot mode if that becomes a problem.
+
+#### Userbot mode (`TG_SESSION_STRING` or `.session` file) — legacy
+
+Use this only when you can't make the bot an admin (e.g. you're
+mirroring someone else's channel and you're just a member).
+
+The first time you run `python -m src.main` without a session string,
+pyrofork will ask for your phone number and the SMS/Telegram code. It
+saves a `.session` file locally — keep this safe; it's equivalent to
+your Telegram login. For VPS/headless deploys, run `make session` once
+locally and paste the resulting string into `TG_SESSION_STRING`.
 
 ### Telegram source channel (`TG_SOURCE_CHANNEL`)
 
@@ -63,8 +99,8 @@ Either the numeric chat id (recommended, e.g. `-1001234567890`) or
 `@username`. To find the numeric id, forward a post from the channel to
 [@RawDataBot](https://t.me/RawDataBot) and read `forward_from_chat.id`.
 
-Your account just needs to be a member of this channel; no admin role
-required.
+In bot mode the bot must be a channel admin; in userbot mode your
+account just needs to be a member.
 
 ### Bale (`BALE_BOT_TOKEN`, `BALE_CHANNEL_ID`)
 
@@ -88,9 +124,11 @@ All settings come from `.env` (loaded via pydantic-settings). See
 
 | Var | Required | Default | Notes |
 |---|---|---|---|
-| `TG_API_ID` | yes | — | from my.telegram.org |
-| `TG_API_HASH` | yes | — | from my.telegram.org |
-| `TG_SESSION_NAME` | no | `tg-bale-mirror` | filename prefix for the session file |
+| `TG_API_ID` | yes | — | from my.telegram.org (both modes) |
+| `TG_API_HASH` | yes | — | from my.telegram.org (both modes) |
+| `TG_SESSION_NAME` | no | `tg-bale-mirror` | filename prefix for the userbot session file |
+| `TG_BOT_TOKEN` | no* | — | bot listener mode (preferred). *One of `TG_BOT_TOKEN` / `TG_SESSION_STRING` / interactive `.session` is required at runtime. |
+| `TG_SESSION_STRING` | no* | — | userbot listener mode (in-memory). |
 | `TG_SOURCE_CHANNEL` | yes | — | numeric id or `@username` |
 | `BALE_BOT_TOKEN` | yes | — | from Bale's BotFather |
 | `BALE_CHANNEL_ID` | yes | — | numeric id or `@username` |

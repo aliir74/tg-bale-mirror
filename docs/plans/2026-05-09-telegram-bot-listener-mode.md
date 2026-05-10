@@ -64,19 +64,19 @@ Caveats called out in the README:
 - Modify: `src/tg_listener.py` (likely no code change; defensive only)
 - Test: `tests/test_tg_listener.py`
 
-- [ ] Write failing test: `test_resolve_source_works_with_bot_get_chat_returning_channel` — drive `resolve_source()` against a mock client where `get_chat("@channel")` returns a `FakeChat(id=-100…)` (same shape bots return). Then a `test_on_message_forwards_channel_post` that constructs a `MagicMock` with `chat.id` set to the resolved id and `media_group_id=None` and asserts the debouncer receives it. (Existing tests already cover most of this — only add what's missing.)
-- [ ] Run tests — expect FAIL (or skip if redundant; if existing tests already cover both, mark this task `[~]` skipped with a note in **Decisions Made**)
-- [ ] Implement minimal change if any (likely none).
-- [ ] Run tests — expect PASS
-- [ ] Commit (only if code changed): `git commit -m "test(listener): cover bot-mode channel_post dispatch path"`
+- [x] Write failing test: `test_resolve_source_works_with_bot_get_chat_returning_channel` — drive `resolve_source()` against a mock client where `get_chat("@channel")` returns a `FakeChat(id=-100…)` (same shape bots return). Then a `test_on_message_forwards_channel_post` that constructs a `MagicMock` with `chat.id` set to the resolved id and `media_group_id=None` and asserts the debouncer receives it. (Existing tests already cover most of this — only add what's missing.) **Skipped — existing `test_resolve_source_calls_get_chat_for_username` and `test_on_message_forwards_to_debouncer` already exercise both paths with mocks that are mode-agnostic.**
+- [x] Run tests — expect FAIL (or skip if redundant; if existing tests already cover both, mark this task `[~]` skipped with a note in **Decisions Made**)
+- [x] Implement minimal change if any (likely none). **None needed — pyrogram MessageHandler dispatches both `message` and `channel_post` updates through the same callback.**
+- [x] Run tests — expect PASS
+- [x] Commit (only if code changed): `git commit -m "test(listener): cover bot-mode channel_post dispatch path"` **Skipped, no code change.**
 
 ### Task 4: Smoke-check `make check`
 
 **Files:** none (verification only)
 
-- [ ] Run `make check` — `lint + typecheck + test` must all pass.
-- [ ] If any pyright warnings appear around the new `bot_token` kwarg, add a localized `# type: ignore[arg-type]` and document why in **Decisions Made**.
-- [ ] No commit unless a fix landed; in that case: `git commit -m "fix(main): silence pyright on pyrofork bot kwargs"`
+- [x] Run `make check` — `lint + typecheck + test` must all pass.
+- [x] If any pyright warnings appear around the new `bot_token` kwarg, add a localized `# type: ignore[arg-type]` and document why in **Decisions Made**. **None — existing `# type: ignore[arg-type]` on `Client(**...)` already covers it.**
+- [x] No commit unless a fix landed; in that case: `git commit -m "fix(main): silence pyright on pyrofork bot kwargs"` **No fix needed.**
 
 ---
 
@@ -89,19 +89,19 @@ Caveats called out in the README:
 - Modify: `README.md`
 - Modify: `CLAUDE.md`
 
-- [ ] Write failing test: N/A (docs-only). Skip TDD for this task — verify by inspection.
-- [ ] `.env.example`:
+- [x] Write failing test: N/A (docs-only). Skip TDD for this task — verify by inspection.
+- [x] `.env.example`:
   - Add `TG_BOT_TOKEN=` as the **default/recommended** option above the `TG_SESSION_STRING` block, with a comment explaining: "Bot mode (recommended): create a bot via @BotFather, add it as admin of the source channel, paste the token here."
   - Mark the userbot block as legacy: "Userbot mode (legacy): use only if the operator cannot add a bot as admin of the source channel."
-- [ ] `README.md`:
+- [x] `README.md`:
   - Add a "Listener mode" subsection under setup explaining the two modes, the precedence rule, and the bot-must-be-admin caveat.
   - Update the quickstart to use bot mode.
   - Note the bot-mode media-size caveat.
-- [ ] `CLAUDE.md`:
+- [x] `CLAUDE.md`:
   - Update "Session handling has two modes" → three modes (bot / userbot-string / userbot-file), reflect the new precedence.
   - Update the Architecture diagram caption to mention bot mode.
-- [ ] Visual review of all three files.
-- [ ] Commit: `git commit -m "docs: bot listener mode is the new default; userbot kept as legacy"`
+- [x] Visual review of all three files.
+- [x] Commit: `git commit -m "docs: bot listener mode is the new default; userbot kept as legacy"`
 
 ### Task 6: Final verification
 
@@ -121,6 +121,7 @@ Caveats called out in the README:
 | Bot mode runs `in_memory=True` (no `.session` file) | Bots authenticate every start via `bot_token`; persisting a session adds nothing and would just be another file to gitignore/sync to VPS. |
 | `TG_API_ID` / `TG_API_HASH` remain required in bot mode | Pyrofork's `Client` always needs them, even in bot mode — they identify the *app*, not the user. |
 | Extract `build_tg_client(_kwargs)` helper instead of inlining mode logic in `main()` | The mode-selection branch is the only piece worth unit-testing; keeping `main()` as wiring keeps the tests trivial. |
+| Task 3 marked done with no code change | Existing `tests/test_tg_listener.py` already covers `get_chat`-style resolution and `MessageHandler` dispatch with a `MagicMock`. Pyrogram routes both `message` and `channel_post` updates through `MessageHandler`, so the listener is mode-agnostic. Adding bot-specific tests would just duplicate existing coverage. |
 
 ---
 
