@@ -43,16 +43,16 @@ Caveats called out in the README:
 - Modify: `src/main.py`
 - Test: `tests/test_main_client_factory.py` (new) — extract a small `build_tg_client(config)` helper to keep `main()` testable.
 
-- [ ] Write failing tests in `tests/test_main_client_factory.py`:
+- [x] Write failing tests in `tests/test_main_client_factory.py`:
   - bot mode: when `tg_bot_token` is set, returned Client kwargs include `bot_token`, no `session_string`, no `in_memory=True` *unless* we choose to keep bot client in-memory too (decision: yes — bots have no use for an on-disk session). Assert `in_memory=True`.
   - userbot string mode: when `tg_session_string` is set and `tg_bot_token` is unset, kwargs include `session_string` and `in_memory=True`.
   - userbot file mode: when both unset, kwargs include `name` only (no `bot_token`, no `session_string`).
   - precedence: when both `tg_bot_token` and `tg_session_string` are set, bot wins and a warning is logged.
-- [ ] Run tests — expect FAIL
-- [ ] Extract `build_tg_client(config) -> Client` (or `build_tg_client_kwargs(config) -> dict` for easier asserts) into `src/main.py`. Implement precedence above. Use `caplog` for the warning assertion.
-- [ ] Run tests — expect PASS
-- [ ] Manually run `make lint typecheck` to keep type-ignores localized.
-- [ ] Commit: `git commit -m "feat(main): select pyrofork bot or userbot mode from config"`
+- [x] Run tests — expect FAIL
+- [x] Extract `build_tg_client(config) -> Client` (or `build_tg_client_kwargs(config) -> dict` for easier asserts) into `src/main.py`. Implement precedence above. Use `caplog` for the warning assertion.
+- [x] Run tests — expect PASS
+- [x] Manually run `make lint typecheck` to keep type-ignores localized.
+- [x] Commit: `git commit -m "feat(main): select pyrofork bot or userbot mode from config"`
 
 ---
 
