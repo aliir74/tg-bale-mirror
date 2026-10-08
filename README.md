@@ -32,7 +32,7 @@ httpx · pydantic-settings · pytest · ruff · pyright.
 
 ## What's NOT mirrored
 
-- Edits and deletes (Bale message IDs aren't tracked in v1)
+- Edits (deletes are propagated; see "Deletes" below)
 - Polls, stickers, locations, contacts
 - Forwarded-from headers (re-uploaded posts look authored by the bot)
 
@@ -133,6 +133,7 @@ All settings come from `.env` (loaded via pydantic-settings). See
 | `BALE_BOT_TOKEN` | yes | — | from Bale's BotFather |
 | `BALE_CHANNEL_ID` | yes | — | numeric id or `@username` |
 | `TEMP_MEDIA_DIR` | no | `./tmp` | scratch dir for in-flight downloads |
+| `TG_DELETE_RECONCILE_INTERVAL` | no | `300` | seconds between delete checks of posts from the last 48h; `0` turns the check off |
 | `LOG_LEVEL` | no | `INFO` | `DEBUG` for verbose pyrogram traces |
 
 ## Operations
@@ -149,7 +150,27 @@ All settings come from `.env` (loaded via pydantic-settings). See
 
 The retry queue is at `.bale_retry_queue` in the working directory.
 You can inspect it as plain JSON; the size is logged on every enqueue
-and flush.
+and flush. `.bale_message_map` (also JSON) maps each Telegram message
+id to the Bale message ids it produced.
+
+## Deletes
+
+Deleting a post in the Telegram channel deletes its copy in Bale. For an
+album, deleting one item deletes only that item's copy. Two paths feed
+the same delete logic:
+
+- **Delete updates** from Telegram (`on_deleted_messages`). Telegram does
+  not promise these, and it is unverified whether a bot account gets them.
+- **Reconcile check** every `TG_DELETE_RECONCILE_INTERVAL` seconds: the
+  mirror asks Telegram for every mapped post and treats empty results as
+  deleted. If a whole batch comes back empty it is skipped, because that
+  looks like lost channel access rather than a bulk delete.
+
+Limits: Bale only deletes messages younger than 48h, so the map forgets
+older posts. The Bale bot needs the delete-messages admin right in the
+target channel. Posts mirrored before this feature have no mapping and
+are never deleted. A failed delete goes to the retry queue; a 4xx reply
+on retry (already gone, too old, no permission) is logged and dropped.
 
 ## Limits / known gotchas
 
@@ -162,9 +183,8 @@ and flush.
 - **Sticker / poll / location:** silently dropped. The mirror only
   forwards photos, videos, documents, audio, voice, animations, and
   text.
-- **Edits / deletes:** not propagated. A second pass would need a
-  `tg_msg_id ↔ bale_msg_id` cache (sqlite); see channel-ghost for the
-  pattern.
+- **Edits:** not propagated. The `.bale_message_map` used for deletes
+  is the starting point if this is ever needed.
 - **Single source / single target:** v1 supports one source channel and
   one target. Fan-out would need a list of `(BaleClient, channel_id)`.
 
@@ -175,6 +195,8 @@ src/
   config.py            # pydantic-settings model
   bale_client.py       # async wrapper around tapi.bale.ai/bot<token>
   retry_queue.py       # JSON-on-disk queue with health-check'd flush loop
+  message_map.py       # JSON-on-disk tg message id → bale message ids (48h)
+  delete_reconciler.py # periodic check for deletes Telegram didn't push
   album_debouncer.py   # buffers media_group_id, flushes after 1.5s
   mirror.py            # downloads from TG, uploads to Bale, handles failures
   tg_listener.py       # pyrofork client + handler that feeds the debouncer
@@ -217,7 +239,7 @@ make logs-follow   # tail -f journal
 make status        # systemctl status
 make ssh           # interactive shell on the VPS in /opt/tg-bale-mirror
 make push-env      # sync local .env to VPS (3s abort window)
-make pull-state    # download .bale_retry_queue to ./state-backup/
+make pull-state    # download .bale_retry_queue and .bale_message_map to ./state-backup/
 ```
 
 ## Reference

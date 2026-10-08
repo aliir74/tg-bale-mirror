@@ -106,6 +106,7 @@ push-env:
 pull-state:
 	mkdir -p state-backup
 	-scp $(SSH_HOST):$(REMOTE_DIR)/.bale_retry_queue state-backup/ 2>/dev/null
+	-scp $(SSH_HOST):$(REMOTE_DIR)/.bale_message_map state-backup/ 2>/dev/null
 	@echo ">>> state files saved to ./state-backup/ (missing files are fine)"
 
 install-systemd:
