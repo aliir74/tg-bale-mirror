@@ -28,6 +28,9 @@ def _configure_logging(level: str) -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
+    # httpx logs every request URL at INFO, and Bale puts the bot token in the
+    # URL path. Keep it out of journald.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def build_tg_client_kwargs(config: Config) -> dict[str, object]:
