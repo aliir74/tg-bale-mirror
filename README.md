@@ -163,8 +163,8 @@ the same delete logic:
   not promise these, and it is unverified whether a bot account gets them.
 - **Reconcile check** every `TG_DELETE_RECONCILE_INTERVAL` seconds: the
   mirror asks Telegram for every mapped post and treats empty results as
-  deleted. If a whole batch comes back empty it is skipped, because that
-  looks like lost channel access rather than a bulk delete.
+  deleted. If a whole batch comes back empty, it first checks the channel
+  is still reachable; if not, it skips the batch rather than wipe Bale.
 
 Limits: Bale only deletes messages younger than 48h, so the map forgets
 older posts. The Bale bot needs the delete-messages admin right in the

@@ -54,13 +54,14 @@ class DeleteReconciler:
         deleted: list[int] = []
         for i in range(0, len(ids), BATCH_SIZE):
             batch = ids[i:i + BATCH_SIZE]
-            messages = await self._tg.get_messages(self._chat_id, batch)
+            messages = await self._tg.get_messages(self._chat_id, batch, replies=0)
             gone = [m.id for m in messages if getattr(m, "empty", False)]
-            if len(batch) > 1 and len(gone) == len(batch):
-                # Every message "missing" at once looks like lost access to the
-                # channel, not a bulk delete. Don't wipe the Bale channel.
+            if len(batch) > 1 and len(gone) == len(batch) and not await self._can_see_chat():
+                # Every message "missing" plus no channel access means we lost
+                # access, not that everything was deleted. Don't wipe Bale.
                 logger.warning(
-                    "all %d checked messages came back empty; skipping batch", len(batch)
+                    "all %d checked messages came back empty and the source "
+                    "channel is unreachable; skipping batch", len(batch),
                 )
                 continue
             deleted.extend(gone)
@@ -68,6 +69,14 @@ class DeleteReconciler:
             logger.info("reconcile found deleted tg messages %s", deleted)
             await self._on_deleted(deleted)
         return deleted
+
+    async def _can_see_chat(self) -> bool:
+        try:
+            await self._tg.get_chat(self._chat_id)
+        except Exception:  # noqa: BLE001 — any failure means "can't confirm access"
+            logger.exception("get_chat failed for %d", self._chat_id)
+            return False
+        return True
 
     async def _loop(self) -> None:
         while True:

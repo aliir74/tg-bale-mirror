@@ -22,8 +22,9 @@ def _setup(tmp_path: Path, tg_ids: list[int], empty: set[int]):
         mm.record(i, [i * 10])
     tg = MagicMock()
     tg.get_messages = AsyncMock(
-        side_effect=lambda chat, ids: [FakeMsg(id=i, empty=i in empty) for i in ids]
+        side_effect=lambda chat, ids, replies: [FakeMsg(id=i, empty=i in empty) for i in ids]
     )
+    tg.get_chat = AsyncMock()
     on_deleted = AsyncMock()
     return DeleteReconciler(tg, -100, mm, on_deleted, interval=60), tg, on_deleted
 
@@ -33,7 +34,7 @@ async def test_reconcile_reports_empty_messages(tmp_path: Path) -> None:
 
     assert await rec.reconcile() == [2]
 
-    tg.get_messages.assert_awaited_once_with(-100, [1, 2, 3])
+    tg.get_messages.assert_awaited_once_with(-100, [1, 2, 3], replies=0)
     on_deleted.assert_awaited_once_with([2])
 
 
@@ -44,8 +45,17 @@ async def test_reconcile_with_nothing_deleted_does_not_call_back(tmp_path: Path)
     on_deleted.assert_not_called()
 
 
-async def test_reconcile_skips_batch_when_everything_is_empty(tmp_path: Path) -> None:
+async def test_reconcile_trusts_all_empty_when_channel_is_reachable(tmp_path: Path) -> None:
+    # e.g. the only recent post was an album and the whole album was deleted
     rec, _, on_deleted = _setup(tmp_path, [1, 2, 3], empty={1, 2, 3})
+
+    assert await rec.reconcile() == [1, 2, 3]
+    on_deleted.assert_awaited_once_with([1, 2, 3])
+
+
+async def test_reconcile_skips_all_empty_batch_when_channel_unreachable(tmp_path: Path) -> None:
+    rec, tg, on_deleted = _setup(tmp_path, [1, 2, 3], empty={1, 2, 3})
+    tg.get_chat = AsyncMock(side_effect=RuntimeError("CHANNEL_PRIVATE"))
 
     assert await rec.reconcile() == []
     on_deleted.assert_not_called()

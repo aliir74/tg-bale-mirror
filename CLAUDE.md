@@ -26,7 +26,7 @@ VPS deploy targets (`SSH_HOST=your-vps`, `REMOTE_DIR=/opt/tg-bale-mirror`, syste
 
 ## Architecture (start here)
 
-The runtime is a single async process (`src/main.py`) wiring five components in this exact order — read these together to understand the flow:
+The runtime is a single async process (`src/main.py`) wiring these components in this order (`MessageMap` before `RetryQueue` before `Mirror`; `DeleteReconciler` after `resolve_source()`) — read these together to understand the flow:
 
 ```
 TgListener  ──msg──▶  AlbumDebouncer  ──flush──▶  Mirror  ──upload──▶  BaleClient
@@ -35,6 +35,10 @@ TgListener  ──msg──▶  AlbumDebouncer  ──flush──▶  Mirror  �
                                               RetryQueue (JSON on disk)
                                               flushes every 5min
                                               once BaleClient.is_healthy()
+
+TgListener (on_deleted) ──┐
+DeleteReconciler ─────────┴─tg ids─▶  Mirror.handle_deleted  ──▶  MessageMap.pop → BaleClient.delete_message
+   (get_messages every 300s)                                      (failure → RetryQueue "delete")
 ```
 
 - `tg_listener.py` — pyrofork `Client` with a `MessageHandler` filtered to one resolved chat id. **Resolve usernames to numeric ids before registering** (`resolve_source()` then `register()`); the filter compares ids, not strings. The listener is mode-agnostic — `MessageHandler` dispatches both `message` and `channel_post` updates through the same callback, so bot mode and userbot mode share this code path.
@@ -43,7 +47,7 @@ TgListener  ──msg──▶  AlbumDebouncer  ──flush──▶  Mirror  �
 - `bale_client.py` — thin `httpx.AsyncClient` wrapper. `send_media_group` uses the `attach://fileN` multipart pattern. `is_healthy()` is `getMe` returning success — used by the retry queue to decide whether to attempt a flush.
 - `retry_queue.py` — JSON-on-disk queue at `.bale_retry_queue`. Four item kinds: `text`, `media`, `album`, `delete`. Send items carry an optional `tg_id` (per sub-item for albums) so a successful retry records the mapping, and `drop_pending(tg_id)` removes a send whose source was deleted before it went out. A queued `delete` that gets a 4xx is dropped, not retried, so it cannot block the sends behind it. `flush()` stops at the first failure (preserves order); items older than `MAX_AGE_HOURS=24` are pruned on load. **On send failure in mirror, the temp media file is intentionally NOT deleted** — the retry queue references the path on disk.
 - `message_map.py` — JSON-on-disk `.bale_message_map`: Telegram message id → list of Bale message ids (media + caption tail + text chunks). Recorded on every successful send in `Mirror` and `RetryQueue`; pruned at 48h because Bale's `deleteMessage` refuses older messages. Album ids are matched by index against the `sendMediaGroup` result list; if the count doesn't match, the album is left unmapped.
-- **Deletes** enter through `Mirror.handle_deleted(tg_ids)` from two sources: `TgListener`'s `DeletedMessagesHandler` (Telegram doesn't promise delete updates, and bot-mode delivery is unverified) and `delete_reconciler.py`, which every `TG_DELETE_RECONCILE_INTERVAL` seconds (default 300, `0` = off) calls `get_messages` on mapped ids and treats `empty` results as deleted. It skips a batch that comes back all-empty (looks like lost access, not a bulk delete).
+- **Deletes** enter through `Mirror.handle_deleted(tg_ids)` from two sources: `TgListener`'s `DeletedMessagesHandler` (Telegram doesn't promise delete updates, and bot-mode delivery is unverified) and `delete_reconciler.py`, which every `TG_DELETE_RECONCILE_INTERVAL` seconds (default 300, `0` = off) calls `get_messages` on mapped ids and treats `empty` results as deleted. If a whole batch comes back empty it confirms access with `get_chat` first and skips the batch if that fails (lost access must not wipe Bale).
 
 ## Conventions specific to this repo
 
