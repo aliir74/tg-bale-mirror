@@ -13,6 +13,8 @@ from pyrogram.client import Client
 from src.album_debouncer import AlbumDebouncer
 from src.bale_client import BaleClient
 from src.config import Config
+from src.delete_reconciler import DeleteReconciler
+from src.message_map import MessageMap
 from src.mirror import Mirror
 from src.retry_queue import RetryQueue
 from src.tg_listener import TgListener
@@ -67,20 +69,30 @@ async def main() -> None:
     logger.info("starting tg-bale-mirror")
 
     bale = BaleClient(config.bale_bot_token, config.bale_channel_id)
-    queue = RetryQueue(bale)
+    message_map = MessageMap()
+    queue = RetryQueue(bale, message_map=message_map)
     tg = Client(**build_tg_client_kwargs(config))  # type: ignore[arg-type]
-    mirror = Mirror(tg, bale, queue, config.temp_media_dir)
+    mirror = Mirror(tg, bale, queue, config.temp_media_dir, message_map)
     debouncer = AlbumDebouncer(on_flush=mirror.handle)
-    listener = TgListener(tg, config.tg_source_channel, debouncer)
+    listener = TgListener(
+        tg, config.tg_source_channel, debouncer, on_deleted=mirror.handle_deleted
+    )
+    reconciler: DeleteReconciler | None = None
 
+    message_map.load()
     await bale.start()
     await queue.start()
     await tg.start()
 
     shutdown = asyncio.Event()
     try:
-        await listener.resolve_source()
+        source_id = await listener.resolve_source()
         listener.register()
+        reconciler = DeleteReconciler(
+            tg, source_id, message_map, mirror.handle_deleted,
+            config.tg_delete_reconcile_interval,
+        )
+        reconciler.start()
         logger.info("listening for posts")
 
         loop = asyncio.get_running_loop()
@@ -89,10 +101,13 @@ async def main() -> None:
         await shutdown.wait()
     finally:
         logger.info("shutting down")
+        if reconciler is not None:
+            await reconciler.stop()
         await debouncer.flush_all()
         await tg.stop()
         await queue.stop()
         await bale.stop()
+        message_map.save()
 
 
 if __name__ == "__main__":

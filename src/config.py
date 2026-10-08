@@ -39,6 +39,13 @@ class Config(BaseSettings):
     bale_bot_token: str = Field(..., min_length=1)
     bale_channel_id: int | str = Field(...)
 
+    tg_delete_reconcile_interval: float = Field(
+        default=300.0,
+        ge=0,
+        description="Seconds between checks of recently mirrored posts for deletes "
+        "Telegram did not push as an update. 0 disables the check.",
+    )
+
     temp_media_dir: Path = Field(default=Path("./tmp"))
     log_level: str = Field(default="INFO")
 

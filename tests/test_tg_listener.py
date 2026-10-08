@@ -78,3 +78,35 @@ async def test_on_message_forwards_to_debouncer() -> None:
     await listener._on_message(client, fake_msg)
 
     assert flushed == [[fake_msg]]
+
+
+@dataclass
+class FakeDeleted:
+    id: int
+    chat: FakeChat | None
+
+
+async def test_register_adds_delete_handler_when_callback_given() -> None:
+    client = MagicMock()
+    deb = AlbumDebouncer(on_flush=AsyncMock(), delay=0.01)
+    listener = TgListener(client, 42, deb, on_deleted=AsyncMock())
+
+    await listener.resolve_source()
+    listener.register()
+
+    assert client.add_handler.call_count == 2
+
+
+async def test_on_deleted_forwards_only_source_channel_ids() -> None:
+    on_deleted = AsyncMock()
+    deb = AlbumDebouncer(on_flush=AsyncMock(), delay=0.01)
+    listener = TgListener(MagicMock(), 42, deb, on_deleted=on_deleted)
+    await listener.resolve_source()
+
+    await listener._on_deleted(MagicMock(), [  # type: ignore[arg-type]
+        FakeDeleted(id=1, chat=FakeChat(id=42)),
+        FakeDeleted(id=2, chat=FakeChat(id=7)),
+        FakeDeleted(id=3, chat=None),
+    ])
+
+    on_deleted.assert_awaited_once_with([1])
