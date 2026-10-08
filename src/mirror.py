@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,6 +24,9 @@ from src.retry_queue import RetryQueue
 logger = logging.getLogger(__name__)
 
 MAX_CAPTION = 1000  # leave headroom under Bale's ~1024 cap
+# How long to remember a delete that arrived before its post was sent
+# (album debounce window or an upload still in flight).
+EARLY_DELETE_TTL_SECONDS = 600
 
 MediaKind = Literal["photo", "video", "document"]
 
@@ -42,14 +46,21 @@ class Mirror:
         self._map = message_map
         self._temp = temp_dir
         self._temp.mkdir(parents=True, exist_ok=True)
+        self._early_deletes: dict[int, float] = {}  # tg id -> monotonic time
 
     async def handle(self, messages: list[Any]) -> None:
+        messages = [m for m in messages if not self._deleted_early(m.id)]
         if not messages:
             return
         if len(messages) > 1 or getattr(messages[0], "media_group_id", None):
             await self._handle_album(messages)
         else:
             await self._handle_single(messages[0])
+        # A delete that landed while the upload was in flight found nothing
+        # to delete; the copy exists now, so delete it.
+        late = [m.id for m in messages if self._deleted_early(m.id)]
+        if late:
+            await self.handle_deleted(late)
 
     async def handle_deleted(self, tg_ids: list[int]) -> None:
         """Delete the Bale copies of deleted Telegram messages."""
@@ -58,8 +69,12 @@ class Mirror:
             # always drop queued sends as well as deleting mapped copies.
             dropped = self._queue.drop_pending(tg_id)
             bale_ids = self._map.pop(tg_id)
-            if not bale_ids and not dropped:
-                logger.debug("no bale copy for deleted tg message %d", tg_id)
+            if bale_ids or dropped:
+                self._early_deletes.pop(tg_id, None)
+            else:
+                # Unknown now, but its send may still be buffered or in flight.
+                logger.debug("no bale copy yet for deleted tg message %d", tg_id)
+                self._early_deletes[tg_id] = time.monotonic()
             for i, bale_id in enumerate(bale_ids):
                 try:
                     await self._bale.delete_message(bale_id)
@@ -73,6 +88,11 @@ class Mirror:
                 except Exception:  # noqa: BLE001 — any failure goes to queue
                     logger.exception("delete_message failed; enqueueing")
                     self._queue.enqueue_delete(bale_id)
+
+    def _deleted_early(self, tg_id: int) -> bool:
+        cutoff = time.monotonic() - EARLY_DELETE_TTL_SECONDS
+        self._early_deletes = {k: t for k, t in self._early_deletes.items() if t > cutoff}
+        return tg_id in self._early_deletes
 
     async def _handle_single(self, message: Any) -> None:
         kind = _media_kind(message)

@@ -336,3 +336,45 @@ async def test_cancelled_delete_parks_remaining_ids_in_queue(
         await mirror.handle_deleted([7])
 
     assert [it["bale_id"] for it in queue._items] == [100, 101]  # type: ignore[attr-defined,typeddict-item]
+
+
+async def test_delete_during_album_debounce_skips_deleted_items(
+    temp_dir: Path, queue: RetryQueue, message_map: MessageMap
+) -> None:
+    mirror, bale, _ = _make_mirror(temp_dir, queue, [], message_map)
+    bale.send_media_group = AsyncMock(return_value=_sent(501, 502))  # type: ignore[method-assign]
+
+    await mirror.handle_deleted([2])  # arrives while the album is buffered
+    await mirror.handle(_album())
+
+    items = bale.send_media_group.await_args.args[0]  # type: ignore[attr-defined]
+    assert [it["tg_id"] for it in items] == [1, 3]
+    bale.delete_message.assert_not_called()  # type: ignore[attr-defined]
+
+
+async def test_delete_of_whole_buffered_post_sends_nothing(
+    temp_dir: Path, queue: RetryQueue, message_map: MessageMap
+) -> None:
+    mirror, bale, _ = _make_mirror(temp_dir, queue, [], message_map)
+
+    await mirror.handle_deleted([7])
+    await mirror.handle([FakeMessage(id=7, text="gone")])
+
+    bale.send_message.assert_not_called()  # type: ignore[attr-defined]
+
+
+async def test_delete_during_upload_deletes_copy_after_send(
+    temp_dir: Path, queue: RetryQueue, message_map: MessageMap
+) -> None:
+    mirror, bale, _ = _make_mirror(temp_dir, queue, [], message_map)
+
+    async def slow_photo(path, caption=None):
+        await mirror.handle_deleted([7])  # delete lands mid-upload
+        return _sent(100)
+
+    bale.send_photo = AsyncMock(side_effect=slow_photo)  # type: ignore[method-assign]
+
+    await mirror.handle([FakeMessage(id=7, photo=object())])
+
+    bale.delete_message.assert_awaited_once_with(100)  # type: ignore[attr-defined]
+    assert message_map.tg_ids() == []
