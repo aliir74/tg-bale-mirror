@@ -26,8 +26,14 @@ class BaleRef(TypedDict):
 
 
 class MessageMap:
-    def __init__(self, map_file: Path = DEFAULT_MAP_FILE) -> None:
+    def __init__(
+        self,
+        map_file: Path = DEFAULT_MAP_FILE,
+        bale_chat_id: int | str | None = None,
+    ) -> None:
         self._file = map_file
+        # Bale ids are only meaningful in the channel they were sent to.
+        self._chat = None if bale_chat_id is None else str(bale_chat_id)
         self._entries: dict[int, list[BaleRef]] = {}
 
     def load(self) -> None:
@@ -36,6 +42,13 @@ class MessageMap:
             return
         try:
             data = json.loads(self._file.read_text())
+            if data.get("bale_chat_id") != self._chat:
+                logger.warning(
+                    "%s was written for bale chat %s, not %s; ignoring it",
+                    self._file, data.get("bale_chat_id"), self._chat,
+                )
+                self._entries = {}
+                return
             self._entries = {int(k): v for k, v in data.get("messages", {}).items()}
             self._prune_expired()
             logger.info("loaded %d mapped messages from %s", len(self._entries), self._file)
@@ -46,7 +59,10 @@ class MessageMap:
     def save(self) -> None:
         try:
             self._file.write_text(json.dumps(
-                {"messages": {str(k): v for k, v in self._entries.items()}},
+                {
+                    "bale_chat_id": self._chat,
+                    "messages": {str(k): v for k, v in self._entries.items()},
+                },
                 ensure_ascii=False,
             ))
         except OSError as exc:

@@ -54,15 +54,22 @@ class Mirror:
     async def handle_deleted(self, tg_ids: list[int]) -> None:
         """Delete the Bale copies of deleted Telegram messages."""
         for tg_id in tg_ids:
+            # A post can be part sent, part queued (e.g. caption tail), so
+            # always drop queued sends as well as deleting mapped copies.
+            dropped = self._queue.drop_pending(tg_id)
             bale_ids = self._map.pop(tg_id)
-            if not bale_ids:
-                if not self._queue.drop_pending(tg_id):
-                    logger.debug("no bale copy for deleted tg message %d", tg_id)
-                continue
-            for bale_id in bale_ids:
+            if not bale_ids and not dropped:
+                logger.debug("no bale copy for deleted tg message %d", tg_id)
+            for i, bale_id in enumerate(bale_ids):
                 try:
                     await self._bale.delete_message(bale_id)
                     logger.info("deleted bale message %d (tg %d)", bale_id, tg_id)
+                except asyncio.CancelledError:
+                    # Shutdown mid-delete: the map entry is already gone, so
+                    # park the rest in the queue rather than lose them.
+                    for rest in bale_ids[i:]:
+                        self._queue.enqueue_delete(rest)
+                    raise
                 except Exception:  # noqa: BLE001 — any failure goes to queue
                     logger.exception("delete_message failed; enqueueing")
                     self._queue.enqueue_delete(bale_id)

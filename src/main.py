@@ -69,7 +69,7 @@ async def main() -> None:
     logger.info("starting tg-bale-mirror")
 
     bale = BaleClient(config.bale_bot_token, config.bale_channel_id)
-    message_map = MessageMap()
+    message_map = MessageMap(bale_chat_id=config.bale_channel_id)
     queue = RetryQueue(bale, message_map=message_map)
     tg = Client(**build_tg_client_kwargs(config))  # type: ignore[arg-type]
     mirror = Mirror(tg, bale, queue, config.temp_media_dir, message_map)

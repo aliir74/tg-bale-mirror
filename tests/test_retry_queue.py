@@ -216,3 +216,34 @@ async def test_drop_pending_removes_album_item_only(queue_file: Path) -> None:
     on_disk = json.loads(queue_file.read_text())["items"]
     assert [it["tg_id"] for it in on_disk[0]["items"]] == [3]
     assert on_disk[1]["text"] == "other"
+
+
+async def test_queued_delete_429_stays_queued(queue_file: Path) -> None:
+    bale = _stub_bale()
+    bale.delete_message = AsyncMock(side_effect=_http_error(429))  # type: ignore[method-assign]
+    q = RetryQueue(bale, queue_file=queue_file)
+    q.enqueue_delete(55)
+
+    assert await q.flush() is False
+    assert q.size == 1
+
+
+async def test_drop_pending_during_flush_keeps_other_items(queue_file: Path) -> None:
+    bale = _stub_bale()
+    q = RetryQueue(bale, queue_file=queue_file)
+    q.enqueue_text("A", tg_id=1)
+    q.enqueue_text("B", tg_id=2)
+    calls: list[str] = []
+
+    async def send(text, parse_mode=None):
+        calls.append(text)
+        if text == "A":
+            q.drop_pending(1)  # source deleted while A is in flight
+            raise RuntimeError("B never gets a chance")
+        return {}
+
+    bale.send_message = AsyncMock(side_effect=send)  # type: ignore[method-assign]
+
+    assert await q.flush() is False
+    on_disk = json.loads(queue_file.read_text())["items"]
+    assert [it["text"] for it in on_disk] == ["B"]

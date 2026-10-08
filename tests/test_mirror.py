@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -308,3 +309,30 @@ async def test_delete_failure_enqueues_delete(
     assert queue._items[0] == {  # type: ignore[attr-defined]
         "kind": "delete", "bale_id": 100, "queued_at": queue._items[0]["queued_at"],  # type: ignore[attr-defined]
     }
+
+
+async def test_delete_drops_queued_tail_of_mapped_post(
+    temp_dir: Path, queue: RetryQueue, message_map: MessageMap
+) -> None:
+    mirror, bale, _ = _make_mirror(temp_dir, queue, [], message_map)
+    bale.send_message = AsyncMock(side_effect=RuntimeError("network"))  # type: ignore[method-assign]
+    await mirror.handle([FakeMessage(id=7, photo=object(), caption="x" * 1500)])
+    assert queue.size == 1  # photo sent, tail queued
+
+    await mirror.handle_deleted([7])
+
+    bale.delete_message.assert_awaited_once_with(100)  # type: ignore[attr-defined]
+    assert queue.size == 0
+
+
+async def test_cancelled_delete_parks_remaining_ids_in_queue(
+    temp_dir: Path, queue: RetryQueue, message_map: MessageMap
+) -> None:
+    mirror, bale, _ = _make_mirror(temp_dir, queue, [], message_map)
+    message_map.record(7, [100, 101])
+    bale.delete_message = AsyncMock(side_effect=asyncio.CancelledError)  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await mirror.handle_deleted([7])
+
+    assert [it["bale_id"] for it in queue._items] == [100, 101]  # type: ignore[attr-defined,typeddict-item]

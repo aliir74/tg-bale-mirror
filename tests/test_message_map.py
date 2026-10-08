@@ -47,3 +47,13 @@ def test_load_tolerates_corrupt_file(tmp_path: Path) -> None:
     mm.load()
 
     assert mm.tg_ids() == []
+
+
+def test_load_ignores_map_written_for_another_bale_chat(tmp_path: Path) -> None:
+    f = tmp_path / ".map"
+    MessageMap(map_file=f, bale_chat_id="@old").record(1, [10])
+
+    mm = MessageMap(map_file=f, bale_chat_id="@new")
+    mm.load()
+
+    assert mm.tg_ids() == []

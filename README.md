@@ -169,8 +169,9 @@ the same delete logic:
 Limits: Bale only deletes messages younger than 48h, so the map forgets
 older posts. The Bale bot needs the delete-messages admin right in the
 target channel. Posts mirrored before this feature have no mapping and
-are never deleted. A failed delete goes to the retry queue; a 4xx reply
-on retry (already gone, too old, no permission) is logged and dropped.
+are never deleted. A failed delete goes to the retry queue; a 4xx reply (other than a 429
+rate limit) on retry (already gone, too old, no permission) is logged
+and dropped. Changing `BALE_CHANNEL_ID` discards the old map.
 
 ## Limits / known gotchas
 

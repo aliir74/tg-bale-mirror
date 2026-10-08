@@ -165,7 +165,7 @@ class RetryQueue:
                     removed = True
                     if not rest:
                         continue
-                    item = AlbumItem(kind="album", items=rest, queued_at=item["queued_at"])
+                    item["items"] = rest  # in place, so flush() still matches it
             elif item["kind"] != "delete" and item.get("tg_id") == tg_id:
                 removed = True
                 continue
@@ -191,9 +191,13 @@ class RetryQueue:
 
         sent = 0
         try:
+            # drop_pending() can remove items while a send is awaited, so match
+            # by identity instead of position.
             for item in list(self._items):
+                if not any(x is item for x in self._items):
+                    continue
                 await self._send(item)
-                self._items.pop(0)
+                self._items = [x for x in self._items if x is not item]
                 sent += 1
         except Exception as exc:  # noqa: BLE001 — we want to keep the queue intact on any error
             logger.error("retry flush failed after %d successes: %s", sent, exc)
@@ -239,7 +243,8 @@ class RetryQueue:
         try:
             await self._bale.delete_message(bale_id)
         except httpx.HTTPStatusError as exc:
-            if not exc.response.is_client_error:
+            # 429 is a rate limit, not a permanent refusal.
+            if not exc.response.is_client_error or exc.response.status_code == 429:
                 raise
             logger.warning(
                 "dropping delete of bale message %d: HTTP %d",
