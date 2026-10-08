@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import signal
 import sys
 
@@ -22,14 +23,31 @@ from src.tg_listener import TgListener
 logger = logging.getLogger(__name__)
 
 
+# Bale's Bot API puts the token in the URL path (/bot<TOKEN>/method).
+_BOT_TOKEN_IN_URL = re.compile(r"/bot[^/\s]+/")
+
+
+class RedactingFormatter(logging.Formatter):
+    """Mask bot tokens anywhere in a log record, tracebacks included.
+
+    ``httpx.HTTPStatusError`` messages carry the full request URL, so failed
+    sends would otherwise write the token to journald.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        return _BOT_TOKEN_IN_URL.sub("/bot<redacted>/", super().format(record))
+
+
 def _configure_logging(level: str) -> None:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(
+        RedactingFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout)],
+        handlers=[handler],
     )
-    # httpx logs every request URL at INFO, and Bale puts the bot token in the
-    # URL path. Keep it out of journald.
+    # httpx logs every request URL at INFO; that is noise even when redacted.
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
