@@ -13,5 +13,6 @@ dist/
 
 # runtime
 .bale_retry_queue
+.bale_message_map
 tmp/
 logs/
