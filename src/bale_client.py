@@ -77,6 +77,12 @@ class BaleClient:
         r.raise_for_status()
         return r.json()
 
+    async def delete_message(self, message_id: int) -> dict[str, Any]:
+        payload = {"chat_id": self._chat_id, "message_id": message_id}
+        r = await self.http.post(self._url("deleteMessage"), json=payload)
+        r.raise_for_status()
+        return r.json()
+
     async def send_photo(
         self, file_path: Path, caption: str | None = None
     ) -> dict[str, Any]:
@@ -146,3 +152,18 @@ class BaleClient:
             )
             r.raise_for_status()
             return r.json()
+
+
+def result_message_ids(response: Any) -> list[int]:
+    """Extract Bale message ids from a send* response.
+
+    ``sendMediaGroup`` returns a list of messages, the other send methods a
+    single message. Anything unexpected yields ``[]`` so callers skip mapping
+    instead of crashing a send that already succeeded.
+    """
+    result = response.get("result") if isinstance(response, dict) else None
+    messages = result if isinstance(result, list) else [result]
+    return [
+        m["message_id"] for m in messages
+        if isinstance(m, dict) and isinstance(m.get("message_id"), int)
+    ]

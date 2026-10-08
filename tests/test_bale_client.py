@@ -8,7 +8,7 @@ import httpx
 import pytest
 import respx
 
-from src.bale_client import BALE_API_BASE, BaleClient
+from src.bale_client import BALE_API_BASE, BaleClient, result_message_ids
 
 
 @pytest.fixture
@@ -152,3 +152,33 @@ async def test_unstarted_client_raises() -> None:
 async def test_send_media_group_empty_raises(client: BaleClient) -> None:
     with pytest.raises(ValueError):
         await client.send_media_group([])
+
+
+@respx.mock
+async def test_delete_message(client: BaleClient) -> None:
+    route = respx.post(f"{BALE_API_BASE}TESTTOKEN/deleteMessage").mock(
+        return_value=httpx.Response(200, json={"ok": True, "result": True})
+    )
+
+    await client.delete_message(42)
+
+    assert json.loads(route.calls.last.request.content) == {
+        "chat_id": "@channel", "message_id": 42,
+    }
+
+
+@respx.mock
+async def test_delete_message_raises_on_error(client: BaleClient) -> None:
+    respx.post(f"{BALE_API_BASE}TESTTOKEN/deleteMessage").mock(
+        return_value=httpx.Response(400, json={"ok": False})
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.delete_message(42)
+
+
+def test_result_message_ids_shapes() -> None:
+    assert result_message_ids({"result": {"message_id": 5}}) == [5]
+    assert result_message_ids({"result": [{"message_id": 5}, {"message_id": 6}]}) == [5, 6]
+    assert result_message_ids({"result": True}) == []
+    assert result_message_ids(None) == []

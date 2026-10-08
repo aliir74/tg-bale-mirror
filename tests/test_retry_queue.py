@@ -7,9 +7,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from src.bale_client import BaleClient
+from src.message_map import MessageMap
 from src.retry_queue import RetryQueue
 
 
@@ -149,3 +151,68 @@ async def test_flush_album_routes_to_send_media_group(queue_file: Path) -> None:
 
     assert ok is True
     bale.send_media_group.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+def _http_error(status: int) -> httpx.HTTPStatusError:
+    req = httpx.Request("POST", "https://tapi.bale.ai/botX/deleteMessage")
+    return httpx.HTTPStatusError("err", request=req, response=httpx.Response(status, request=req))
+
+
+async def test_queued_delete_4xx_is_dropped_and_does_not_block(queue_file: Path) -> None:
+    bale = _stub_bale()
+    bale.delete_message = AsyncMock(side_effect=_http_error(400))  # type: ignore[method-assign]
+    q = RetryQueue(bale, queue_file=queue_file)
+    q.enqueue_delete(55)
+    q.enqueue_text("after")
+
+    assert await q.flush() is True
+
+    assert q.size == 0
+    bale.send_message.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+async def test_queued_delete_5xx_stays_queued(queue_file: Path) -> None:
+    bale = _stub_bale()
+    bale.delete_message = AsyncMock(side_effect=_http_error(502))  # type: ignore[method-assign]
+    q = RetryQueue(bale, queue_file=queue_file)
+    q.enqueue_delete(55)
+
+    assert await q.flush() is False
+    assert q.size == 1
+
+
+async def test_flush_records_mapping(tmp_path: Path, queue_file: Path) -> None:
+    bale = _stub_bale()
+    bale.send_message = AsyncMock(return_value={"ok": True, "result": {"message_id": 9}})  # type: ignore[method-assign]
+    bale.send_media_group = AsyncMock(  # type: ignore[method-assign]
+        return_value={"ok": True, "result": [{"message_id": 10}, {"message_id": 11}]}
+    )
+    mm = MessageMap(map_file=tmp_path / ".map")
+    q = RetryQueue(bale, queue_file=queue_file, message_map=mm)
+    q.enqueue_text("hi", tg_id=1)
+    q.enqueue_album([
+        {"type": "photo", "path": Path("/tmp/a"), "caption": None, "tg_id": 2},
+        {"type": "photo", "path": Path("/tmp/b"), "caption": None, "tg_id": 3},
+    ])
+
+    assert await q.flush() is True
+
+    assert mm.pop(1) == [9]
+    assert mm.pop(2) == [10]
+    assert mm.pop(3) == [11]
+
+
+async def test_drop_pending_removes_album_item_only(queue_file: Path) -> None:
+    q = RetryQueue(_stub_bale(), queue_file=queue_file)
+    q.enqueue_album([
+        {"type": "photo", "path": Path("/tmp/a"), "caption": "c", "tg_id": 2},
+        {"type": "photo", "path": Path("/tmp/b"), "caption": None, "tg_id": 3},
+    ])
+    q.enqueue_text("other", tg_id=4)
+
+    assert q.drop_pending(2) is True
+    assert q.drop_pending(99) is False
+
+    on_disk = json.loads(queue_file.read_text())["items"]
+    assert [it["tg_id"] for it in on_disk[0]["items"]] == [3]
+    assert on_disk[1]["text"] == "other"
